@@ -15,6 +15,7 @@
 #-------------------------------------------------------------------------
 #./snp-convert-kgp-rs.pl --help
 #./snp-convert-kgp-rs.pl --bim=AA.bim --conversion-file=HumanOmni1_conversion_rsids.txt
+#./snp-convert-kgp-rs.pl --bim=AA.bim --conversion-file=HumanOmni1_conversion_rsids.txt --remove-chr0
 #./snp-convert-kgp-rs.pl --bim=AA.bim --conversion-file=HumanOmni1_conversion_rsids.txt --quiet
 #-------------------------------------------------------------------------
 #
@@ -26,16 +27,18 @@ use warnings;
 use Getopt::Long;
 use Pod::Usage;
 
-my $bim;              # original bim file
-my $conversion_file;  # file containing kgp/GA conversions
+my $bim;                # original bim file
+my $conversion_file;    # file containing kgp/GA conversions
+my $remove_chr0;        # remove chr0 entries
 my $quiet;
 my $help;
 
 GetOptions('bim=s'             => \$bim,
-		   'conversion-file=s' => \$conversion_file,
-		   'quiet'             => \$quiet,
-		   'help'              => \$help,
-	);
+           'conversion-file=s' => \$conversion_file,
+           'remove-chr0'       => \$remove_chr0,
+           'quiet'             => \$quiet,
+           'help'              => \$help,
+    );
 
 # mechanisms for printing help information:
 pod2usage(-exitval => 1, -verbose => 2, -output => \*STDOUT)  if ($help);
@@ -47,76 +50,80 @@ my $new_bim = sprintf("%s_nokgp%s", $bim_root, $bim_suffix);
 
 open(BIM, "< $bim");
 open(NEWBIM, "> $new_bim");
-open(KGP, "< $conversion_file");
 
 unless($quiet){
-	print sprintf("input file:   %s\n", $bim);
-	print sprintf("output file:  %s\n", $new_bim);
+    print sprintf("input file:   %s\n", $bim);
+    print sprintf("output file:  %s\n", $new_bim);
 }
 
 my $kgp_count = 0;
 my $GA_count = 0;
 
+# ignore or remove chr 0 entries:
+my $min_chr = 0;    # ignore is the default
+if($remove_chr0){
+    $min_chr = 1;
+}
+
 while(my $bim_line = <BIM>){
-	chomp $bim_line;
-	my @bim_data = split(' ', $bim_line);
+    chomp $bim_line;
+    my @bim_data = split(' ', $bim_line);
 
-	# normal lines with chr > 0 and rs[0-9]+ entries:
-	if ($bim_data[0] > 0 & $bim_data[1] =~ /^rs[0-9]+/) {
-		#print sprintf("%s\n", $bim_line);
-		unless($quiet){
-			print ".";
-		}
-		print NEWBIM sprintf("%s\n", $bim_line);
-	}
-	elsif ($bim_data[1] =~ /^kgp[0-9]+/) {
-		my $kgp = $bim_data[1];
-		unless($quiet){
-			print "K";
-		}
+    # normal lines with chr > $min_chr and rs[0-9]+ entries:
+    if ($bim_data[0] >= $min_chr & $bim_data[1] =~ /^rs[0-9]+/) {
+        unless($quiet){
+            if($bim_data[0] == 0){ print "0"; }
+            else { print "."; }
+        }
+        print NEWBIM sprintf("%s\n", $bim_line);
+    }
+    elsif ($bim_data[1] =~ /^kgp[0-9]+/) {
+        my $kgp = $bim_data[1];
+        unless($quiet){
+            print "K";
+        }
 
-		# grep for kgp entry in conversion file:
-		my $rs_kgp_line = `grep $kgp $conversion_file`;
-		my @rs_kgp = split(' ', $rs_kgp_line);
-		my $rs = $rs_kgp[1];
-		if($rs =~ m/,/) {
-			$rs =~ m/(rs[0-9]+),.*/;
-			$rs = $1;
-		}
+        # grep for kgp entry in conversion file:
+        my $rs_kgp_line = `grep $kgp $conversion_file`;
+        my @rs_kgp = split(' ', $rs_kgp_line);
+        my $rs = $rs_kgp[1];
+        if($rs =~ m/,/) {
+            $rs =~ m/(rs[0-9]+),.*/;
+            $rs = $1;
+        }
 
-		$bim_line =~ s/kgp[0-9]+/$rs/;
-		print NEWBIM sprintf("%s\n", $bim_line);
-		$kgp_count++;
-	}
-	elsif ($bim_data[1] =~ /^GA[0-9]+/) {
-		my $GA = $bim_data[1];
-		unless($quiet){
-			print "G";
-		}
+        $bim_line =~ s/kgp[0-9]+/$rs/;
+        print NEWBIM sprintf("%s\n", $bim_line);
+        $kgp_count++;
+    }
+    elsif ($bim_data[1] =~ /^GA[0-9]+/) {
+        my $GA = $bim_data[1];
+        unless($quiet){
+            print "G";
+        }
 
-		# grep for kgp entry in conversion file:
-		my $rs_GA_line = `grep $GA $conversion_file`;
-		my @rs_GA = split(' ', $rs_GA_line);
-		my $rs = $rs_GA[1];
-		if($rs =~ m/,/) {
-			$rs =~ m/(rs[0-9]+),.*/;
-			$rs = $1;
-		}
+        # grep for GA entry in conversion file:
+        my $rs_GA_line = `grep $GA $conversion_file`;
+        my @rs_GA = split(' ', $rs_GA_line);
+        my $rs = $rs_GA[1];
+        if($rs =~ m/,/) {
+            $rs =~ m/(rs[0-9]+),.*/;
+            $rs = $1;
+        }
 
-		$bim_line =~ s/GA[0-9]+/$rs/;
-		print NEWBIM sprintf("%s\n", $bim_line);
-		$GA_count++;
-	}
+        $bim_line =~ s/GA[0-9]+/$rs/;
+        print NEWBIM sprintf("%s\n", $bim_line);
+        $GA_count++;
+    }
 
 }
 
 unless($quiet){
-	print "\n";
-	print sprintf("kgp: %i \n GA : %i\n",
-				  $kgp_count, $GA_count);
+    print "\n";
+    print sprintf("kgp: %i \n GA : %i\n",
+                  $kgp_count, $GA_count);
 }
 
-close(KGP);
 close(NEWBIM);
 close(BIM);
 
@@ -146,11 +153,17 @@ File containing rs conversions corresponding to kgp and GA entries in bim file.
 
 =over 4
 
+=item B<--remove-chr0>
+
+If this option is specified, all chr 0 entries will be neglected in the updated bim file.
+The default behavior is to not remove them.
+
 =item B<--quiet>
 
 Run without printing anything to the screen.
 The default is to run without this option which will show progress by printing
 "." for each bim line already with an rs number
+"0" for chr 0 entries
 "K" for each kgp converted and
 "G" for each GA converted.
 
